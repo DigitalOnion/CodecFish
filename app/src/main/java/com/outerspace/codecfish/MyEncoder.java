@@ -1,5 +1,8 @@
 package com.outerspace.codecfish;
 
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.ColorSpace;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -8,6 +11,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Surface;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -27,6 +31,8 @@ public class MyEncoder {
 
     private static final String MIME_TYPE = "video/avc";       // H.264 Advanced Video Coding
     private MediaCodec encoder;
+
+    private Surface inputSurface;
 
     public void init() {
         MediaCodecInfo codecInfo = getCodecInfo(MIME_TYPE, true, "google", "264");
@@ -56,7 +62,10 @@ public class MyEncoder {
         try {
             encoder = MediaCodec.createByCodecName(codecInfo.getName());
             encoder.setCallback(new MyCallback(), handler);
+
+            // surface is the output surface, can be null for encoding to a ByteBuffer
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+            inputSurface = encoder.createInputSurface();
             handler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -69,8 +78,20 @@ public class MyEncoder {
         }
     }
 
+    private static class ConfigurationMetaData {
+        ConfigurationMetaData(String key) {
+            this.key = key;
+            this.value = null;
+        }
+        String key;
+        ByteBuffer value;
+    }
+
     private static class MyCallback extends MediaCodec.Callback {
-        CharSequence chars[] = {"csd-0", "csd-1"};
+        ConfigurationMetaData[] confMetaData = {
+                new ConfigurationMetaData("csd-0"),
+                new ConfigurationMetaData("csd-1"),
+        };
 
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
@@ -78,16 +99,22 @@ public class MyEncoder {
 
             if(index <= 1) {
                 ByteBuffer buffer = codec.getInputBuffer(index);
-                buffer.put(((String) chars[index]).getBytes());
+                byte[] bytes = (confMetaData[index].key).getBytes();
+                buffer.put(bytes);
                 long timestamp = System.currentTimeMillis();
-                codec.queueInputBuffer(index, 0, chars[index].length(), timestamp, MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
+                codec.queueInputBuffer(index, 0, bytes.length, timestamp, MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
             }
         }
 
         @Override
         public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
             Log.d(TAG, "onOutpubBufferAvailable");
-            codec.releaseOutputBuffer(index, false);
+            if((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                Log.d(TAG, "onOutputBufferAvailable with a config thing");
+            } else {
+                ByteBuffer outBuffer = codec.getOutputBuffer(index);
+                codec.releaseOutputBuffer(index, false);
+            }
         }
 
         @Override
@@ -98,13 +125,19 @@ public class MyEncoder {
         @Override
         public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
             Log.d(TAG, "onOutputFormatChanged");
-            ByteBuffer sps = format.getByteBuffer("csd-0");
-            ByteBuffer pps = format.getByteBuffer("csd-1");
-            byte[] config = new byte[sps.limit() + pps.limit()];
-            sps.get(config, 0, sps.limit());
-            pps.get(config, sps.limit(), pps.limit());
-            Log.d(TAG, format.toString());
+            for(ConfigurationMetaData conf : confMetaData) {
+                if(format.containsKey(conf.key)) {
+                    ByteBuffer buffer = format.getByteBuffer(conf.key);
+                    conf.value = buffer;
+                }
+            }
         }
+    }
+
+    public void processImage() {
+        Canvas canvas = inputSurface.lockCanvas(null);
+        canvas.drawColor(Color.RED);
+        inputSurface.unlockCanvasAndPost(canvas);
     }
 
     private MediaCodecInfo getCodecInfo(String mimeType, boolean wantEncoder, String... containsKeywords) throws IllegalStateException {

@@ -16,4 +16,16 @@
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+
+    <Button
+        android:id="@+id/btn_surface_process_test"
+        android:text="@string/btn_surface_process_test"
+        android:onClick="onClickBtnSurfaceProcessTest"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btn_codec_encoder_test" />
+
+
+
 </androidx.constraintlayout.widget.ConstraintLayout>
