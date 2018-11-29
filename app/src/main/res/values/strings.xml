@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">CodecFish</string>
+
+    <string name="btn_codec_encoder_test">Codec Encoder Test</string>
+</resources>
