@@ -8,13 +8,49 @@
     tools:context=".MainActivity">
 
     <Button
+        android:id="@+id/btn_url_restart"
+        android:text="@string/restart"
+        android:onClick="onClickRestartUrl"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintLeft_toLeftOf="parent"
+        />
+
+    <TextView
+        android:id="@+id/counter_display"
+        android:text = "00"
+        android:textSize="32sp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintRight_toRightOf="parent"/>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/url_layout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toBottomOf="@id/btn_url_restart"
+        >
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/url"
+            android:hint="@string/url_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+
+    <Button
         android:id="@+id/btn_codec_encoder_test"
         android:text="@string/btn_codec_encoder_test"
         android:onClick="onClickBtnCodecEncoderTest"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toBottomOf="@id/url_layout" />
 
 
     <Button

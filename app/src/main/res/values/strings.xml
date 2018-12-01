@@ -3,4 +3,8 @@
 
     <string name="btn_codec_encoder_test">Codec Encoder Test</string>
     <string name="btn_surface_process_test">Surface Process Test</string>
+    <string name="url_hint">Type the stream URL with any inline information</string>
+    <string name="restart">Restart URL</string>
+
+    <string name="muxer_did_not_connect">Muxer did not connect!</string>
 </resources>

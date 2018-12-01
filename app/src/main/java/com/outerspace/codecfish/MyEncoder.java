@@ -1,8 +1,6 @@
 package com.outerspace.codecfish;
 
 import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.ColorSpace;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -16,11 +14,18 @@ import android.view.Surface;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.List;
 
 import androidx.annotation.NonNull;
 
+import net.butterflytv.rtmp_client.RTMPMuxer;
+
 public class MyEncoder {
+    private MainPresenterContract presenter;
+
+    public MyEncoder(MainPresenterContract presenter) {
+        this.presenter = presenter;
+    }
+
     public static final String TAG = "MEDIA_ENCODING";
 
     private static final int TIMEOUT_1SEC = 1000;
@@ -34,7 +39,9 @@ public class MyEncoder {
 
     private Surface inputSurface;
 
-    public void init() {
+    private static RTMPMuxer muxer = new RTMPMuxer();
+
+    public void init(String url, Handler workHandler) {
         MediaCodecInfo codecInfo = getCodecInfo(MIME_TYPE, true, "google", "264");
         int colorFormat = getColorFormat(codecInfo, MIME_TYPE);
 
@@ -52,29 +59,30 @@ public class MyEncoder {
         format.setInteger(MediaFormat.KEY_CAPTURE_RATE, FRAME_RATE);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, IFRAME_INTERVAL);
 
-        // handler to a worker thread
-        HandlerThread handlerThread = new HandlerThread("encoderThread");
-        handlerThread.start();
-        Looper looper = handlerThread.getLooper();
-        Handler handler = new Handler(looper);
+        // opens the RTMP Muxer
+        muxer.open(url, width, height);
+        if( muxer.isConnected() == 1 ) {
+            presenter.onMuxerIsConnected();
 
-        // Create a MediaCodec encoder
-        try {
-            encoder = MediaCodec.createByCodecName(codecInfo.getName());
-            encoder.setCallback(new MyCallback(), handler);
+            // Create a MediaCodec encoder
+            try {
+                encoder = MediaCodec.createByCodecName(codecInfo.getName());
+                encoder.setCallback(new MyCallback(), workHandler);
 
-            // surface is the output surface, can be null for encoding to a ByteBuffer
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            inputSurface = encoder.createInputSurface();
-            handler.post(new Runnable() {
-                @Override
-                public void run() {
-                    encoder.start();
-                }
-            });
-            //inputSurface = encoder.createInputSurface();
-        } catch (IOException e) {
-            e.printStackTrace();
+                // surface is the output surface, can be null for encoding to a ByteBuffer
+                encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                inputSurface = encoder.createInputSurface();
+                workHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        encoder.start();
+                    }
+                });
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else {
+            presenter.onMuxerDidNotConnect();
         }
     }
 
@@ -87,11 +95,12 @@ public class MyEncoder {
         ByteBuffer value;
     }
 
+    // This callback is given to the encoder to run asynchronous. since we set it with
+    // setCallback(new MyCallback(), workHandler). It will run in the workThread, not
+    // on the main thread. Therefore, any interaction with the presenter should be
+    // explicitly run in the main thread.
     private static class MyCallback extends MediaCodec.Callback {
-        ConfigurationMetaData[] confMetaData = {
-                new ConfigurationMetaData("csd-0"),
-                new ConfigurationMetaData("csd-1"),
-        };
+        String[] confKeys = {"csd-0", "csd-1"};
 
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
@@ -99,7 +108,7 @@ public class MyEncoder {
 
             if(index <= 1) {
                 ByteBuffer buffer = codec.getInputBuffer(index);
-                byte[] bytes = (confMetaData[index].key).getBytes();
+                byte[] bytes = confKeys[index].getBytes();
                 buffer.put(bytes);
                 long timestamp = System.currentTimeMillis();
                 codec.queueInputBuffer(index, 0, bytes.length, timestamp, MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
@@ -111,9 +120,15 @@ public class MyEncoder {
             Log.d(TAG, "onOutpubBufferAvailable");
             if((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
                 Log.d(TAG, "onOutputBufferAvailable with a config thing");
-            } else {
-                ByteBuffer outBuffer = codec.getOutputBuffer(index);
+            }
+            ByteBuffer outBuffer = codec.getOutputBuffer(index);
+            if(outBuffer.hasArray()) {
+                int timestamp = (int) System.currentTimeMillis();
+                byte[] outBytes = outBuffer.array();
+                muxer.writeVideo(outBytes, 0, outBytes.length, timestamp);
                 codec.releaseOutputBuffer(index, false);
+            } else {
+                Log.d(TAG, "output buffer does not have array");
             }
         }
 
@@ -124,20 +139,17 @@ public class MyEncoder {
 
         @Override
         public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
-            Log.d(TAG, "onOutputFormatChanged");
-            for(ConfigurationMetaData conf : confMetaData) {
-                if(format.containsKey(conf.key)) {
-                    ByteBuffer buffer = format.getByteBuffer(conf.key);
-                    conf.value = buffer;
-                }
-            }
+            Log.d(TAG, "onOutputFormatChanged format has now Configuration Keys");
         }
     }
 
-    public void processImage() {
+    public void requestCanvas() { // run in work thread
         Canvas canvas = inputSurface.lockCanvas(null);
-        canvas.drawColor(Color.RED);
-        inputSurface.unlockCanvasAndPost(canvas);
+        presenter.onResponseCanvas(canvas);
+    }
+
+    public void streamCanvas(Canvas canvas) {  // run in work thread
+        inputSurface.unlockCanvasAndPost(canvas);       // causes a onOutputBufferAvailable.
     }
 
     private MediaCodecInfo getCodecInfo(String mimeType, boolean wantEncoder, String... containsKeywords) throws IllegalStateException {
