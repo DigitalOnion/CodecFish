@@ -1,6 +1,5 @@
 package com.outerspace.codecfish;
 
-import android.graphics.Canvas;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -28,36 +27,39 @@ public class MyEncoder {
 
     public static final String TAG = "MEDIA_ENCODING";
 
-    private static final int TIMEOUT_1SEC = 1000;
-    private static final int TIMEOUT_100MS = 100;
     public static final int IFRAME_INTERVAL = 2;               // 2 seconds between I-frames
     public static int FRAME_RATE = 25;                         // frames per second.
     public static int BIT_RATE = 850000;
 
     private static final String MIME_TYPE = "video/avc";       // H.264 Advanced Video Coding
     private MediaCodec encoder;
-
+    private Handler workHandler;
     private Surface inputSurface;
 
     private static RTMPMuxer muxer = new RTMPMuxer();
 
-    public void init(String url, Handler workHandler) {
+    public void init(final String url, final int width, final int height) {
         MediaCodecInfo codecInfo = getCodecInfo(MIME_TYPE, true, "google", "264");
         int colorFormat = getColorFormat(codecInfo, MIME_TYPE);
 
-        int width = 854;
-        int height = 480;
+        // handler to a worker thread
+        HandlerThread handlerThread = new HandlerThread("encoderThread");
+        handlerThread.start();
+        Looper looper = handlerThread.getLooper();
+        workHandler = new Handler(looper);
 
         MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
 
-        format.setString(MediaFormat.KEY_MIME, MIME_TYPE);
+        // These settings are needed
+        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat);
         format.setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE);
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
+        format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, IFRAME_INTERVAL);
+        // These settings are optional
+        format.setString(MediaFormat.KEY_MIME, MIME_TYPE);
         format.setInteger(MediaFormat.KEY_WIDTH, width);
         format.setInteger(MediaFormat.KEY_HEIGHT, height);
-        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat);
-        format.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE);
         format.setInteger(MediaFormat.KEY_CAPTURE_RATE, FRAME_RATE);
-        format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, IFRAME_INTERVAL);
 
         // opens the RTMP Muxer
         muxer.open(url, width, height);
@@ -66,12 +68,15 @@ public class MyEncoder {
 
             // Create a MediaCodec encoder
             try {
-                encoder = MediaCodec.createByCodecName(codecInfo.getName());
+                //NOTE: choosing the encoder by name was bringing the google's encoder which didn't work
+                //encoder = MediaCodec.createByCodecName(codecInfo.getName());
+                encoder = MediaCodec.createEncoderByType(MIME_TYPE);
                 encoder.setCallback(new MyCallback(), workHandler);
 
                 // surface is the output surface, can be null for encoding to a ByteBuffer
                 encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
                 inputSurface = encoder.createInputSurface();
+                // encoder.setInputSurface(inputSurface);
                 workHandler.post(new Runnable() {
                     @Override
                     public void run() {
@@ -86,50 +91,32 @@ public class MyEncoder {
         }
     }
 
-    private static class ConfigurationMetaData {
-        ConfigurationMetaData(String key) {
-            this.key = key;
-            this.value = null;
-        }
-        String key;
-        ByteBuffer value;
-    }
-
     // This callback is given to the encoder to run asynchronous. since we set it with
-    // setCallback(new MyCallback(), workHandler). It will run in the workThread, not
-    // on the main thread. Therefore, any interaction with the presenter should be
-    // explicitly run in the main thread.
+    // setCallback(new MyCallback(), workHandler). It will run in the workThread.
     private static class MyCallback extends MediaCodec.Callback {
-        String[] confKeys = {"csd-0", "csd-1"};
 
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
             Log.d(TAG, "onInpubBufferAvailable index:" + index + " Thread:" + Thread.currentThread().getName());
 
-            if(index <= 1) {
-                ByteBuffer buffer = codec.getInputBuffer(index);
-                byte[] bytes = confKeys[index].getBytes();
-                buffer.put(bytes);
-                long timestamp = System.currentTimeMillis();
-                codec.queueInputBuffer(index, 0, bytes.length, timestamp, MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
-            }
+            ByteBuffer buffer = codec.getInputBuffer(index);
+            long timestamp = System.currentTimeMillis();
+            codec.queueInputBuffer(index, 0, buffer.capacity(), timestamp, MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
         }
 
         @Override
         public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
-            Log.d(TAG, "onOutpubBufferAvailable");
-            if((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-                Log.d(TAG, "onOutputBufferAvailable with a config thing");
-            }
+            Log.d(TAG, "onOutpubBufferAvailable " + ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0 ? (" size: " + info.size):" config flag"));
+            byte[] bytes = new byte[info.size];
             ByteBuffer outBuffer = codec.getOutputBuffer(index);
-            if(outBuffer.hasArray()) {
-                int timestamp = (int) System.currentTimeMillis();
-                byte[] outBytes = outBuffer.array();
-                muxer.writeVideo(outBytes, 0, outBytes.length, timestamp);
-                codec.releaseOutputBuffer(index, false);
-            } else {
-                Log.d(TAG, "output buffer does not have array");
-            }
+            outBuffer.position(info.offset);
+            outBuffer.limit(info.offset + info.size);
+            outBuffer.get(bytes, 0, info.size);
+            int timestamp = (int) System.currentTimeMillis();
+            outBuffer.position(info.offset);
+
+            muxer.writeVideo(bytes, 0, bytes.length, timestamp);
+            codec.releaseOutputBuffer(index, false);
         }
 
         @Override
@@ -139,18 +126,18 @@ public class MyEncoder {
 
         @Override
         public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
-            Log.d(TAG, "onOutputFormatChanged format has now Configuration Keys");
+            Log.d(TAG, "onOutputFormatChanged format:" + format);
+            ByteBuffer sps = format.getByteBuffer("csd-0");
+            ByteBuffer pps = format.getByteBuffer("csd-1");
+            byte[] config = new byte[sps.limit() + pps.limit()];
+            sps.get(config, 0, sps.limit());
+            pps.get(config, sps.limit(), pps.limit());
+
+            muxer.writeVideo(config, 0, config.length, 0);
         }
     }
 
-    public void requestCanvas() { // run in work thread
-        Canvas canvas = inputSurface.lockCanvas(null);
-        presenter.onResponseCanvas(canvas);
-    }
-
-    public void streamCanvas(Canvas canvas) {  // run in work thread
-        inputSurface.unlockCanvasAndPost(canvas);       // causes a onOutputBufferAvailable.
-    }
+    public Surface getInputSurface() { return inputSurface; }
 
     private MediaCodecInfo getCodecInfo(String mimeType, boolean wantEncoder, String... containsKeywords) throws IllegalStateException {
         ArrayList<MediaCodecInfo> codecInfoList = new ArrayList<>();
@@ -200,6 +187,4 @@ public class MyEncoder {
         }
         throw new IllegalStateException("Couldn't find color-format for Mime Type = " + mimeType);
     }
-
-
 }

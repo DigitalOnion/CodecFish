@@ -1,8 +1,10 @@
 package com.outerspace.codecfish;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -11,6 +13,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.view.Surface;
+import android.view.SurfaceView;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -19,12 +23,15 @@ import android.widget.Toast;
 import com.google.android.material.textfield.TextInputEditText;
 
 public class MainActivity extends AppCompatActivity implements MainViewContract {
-    private static final String KEY_PREFERENCE_URL = "URL_PREFERENCES";
+    public static final String KEY_PREFERENCE_URL = "URL_PREFERENCES";
+
+    SurfaceView targetSurfaceView;
+
     Button btnEncoderTest;
     Button btnProcessTest;
-    TextInputEditText txtUrl;
     TextView display;
-    SharedPreferences preferences;
+
+    String exerciseUrl;
 
     MainPresenter presenter;
 
@@ -35,68 +42,48 @@ public class MainActivity extends AppCompatActivity implements MainViewContract 
 
         btnEncoderTest = findViewById(R.id.btn_codec_encoder_test);
         btnProcessTest = findViewById(R.id.btn_surface_process_test);
-        btnProcessTest.setEnabled(false);
-
-        txtUrl = findViewById(R.id.url);
+        targetSurfaceView = findViewById(R.id.target_surface_view);
         display = findViewById(R.id.counter_display);
 
         presenter = new MainPresenter(this);
+
+        exerciseUrl = Utils.getRtmpUrl();
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-
-        preferences = this.getPreferences(Context.MODE_PRIVATE);
-
-        txtUrl.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) { }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                SharedPreferences.Editor editor = preferences.edit();
-                editor.putString(KEY_PREFERENCE_URL, s.toString());
-                editor.commit();
-            }
-        });
-
-        if(preferences.contains(KEY_PREFERENCE_URL)) {
-            String priorUrl = preferences.getString(KEY_PREFERENCE_URL, "");
-            txtUrl.setText(priorUrl);
-        } else {
-            txtUrl.setText(Utils.getRtmpUrl());
-        }
+        btnProcessTest.setVisibility(View.GONE);
+        btnEncoderTest.setVisibility(View.VISIBLE);
     }
 
     public void onClickBtnCodecEncoderTest(View view) {
-        String url = txtUrl.getText().toString();
         Handler mainHandler = new Handler(Looper.getMainLooper());
-        presenter.init(url, mainHandler);
+        SharedPreferences preferences = this.getPreferences(Context.MODE_PRIVATE);
+        exerciseUrl = preferences.getString(KEY_PREFERENCE_URL, getString(R.string.no_url));
+        presenter.init(exerciseUrl, mainHandler);
     }
 
     public void onClickBtnSurfaceProcessTest(View view) {
         presenter.startStream();
     }
 
-    public void onClickRestartUrl(View view) {
-        txtUrl.setText(Utils.getRtmpUrl());
+    public void onClickUrl(View view) {
+        Intent intent = new Intent(this, UrlDialogActivity.class);
+        startActivity(intent);
     }
 
     @Override
     public void onMuxerDidNotConnect() {
         Toast.makeText(this, R.string.muxer_did_not_connect, Toast.LENGTH_SHORT).show();
-        btnProcessTest.setEnabled(false);
-        btnEncoderTest.setEnabled(true);
+        btnProcessTest.setVisibility(View.GONE);
+        btnEncoderTest.setVisibility(View.VISIBLE);
     }
 
     @Override
     public void onMuxerIsConnected() {
-        btnProcessTest.setEnabled(true);
-        btnEncoderTest.setEnabled(false);
+        btnProcessTest.setVisibility(View.VISIBLE);
+        btnEncoderTest.setVisibility(View.GONE);
     }
 
     @Override
@@ -108,5 +95,10 @@ public class MainActivity extends AppCompatActivity implements MainViewContract 
                 display.setText(count.toString());
             }
         });
+    }
+
+    @Override
+    public Surface getSurface() {
+        return targetSurfaceView.getHolder().getSurface();
     }
 }

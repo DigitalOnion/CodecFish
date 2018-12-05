@@ -1,10 +1,13 @@
 <resources>
     <string name="app_name">CodecFish</string>
 
-    <string name="btn_codec_encoder_test">Codec Encoder Test</string>
-    <string name="btn_surface_process_test">Surface Process Test</string>
-    <string name="url_hint">Type the stream URL with any inline information</string>
-    <string name="restart">Restart URL</string>
-
+    <string name="btn_codec_encoder_test">Init Encoder</string>
+    <string name="btn_surface_process_test">Stream Test</string>
+    <string name="btn_url">URL</string>
+    <string name="dlg_url_title">Stream URL</string>
+    <string name="dlg_message">URI for this exercise is:</string>
+    <string name="dlg_hint">Usually:rtmp://&lt;&lt;domain&gt;&gt;/&lt;&lt;endpoint&gt;&gt;/&lt;&lt;stream id&gt;&gt;</string>
+    <string name="save">Save</string>
+    <string name="no_url">You need to enter a URI. Open Twitch in a browser, create an account and get your Stream Id.\nclick Url to enter your URI.</string>
     <string name="muxer_did_not_connect">Muxer did not connect!</string>
 </resources>
